@@ -1,8 +1,8 @@
 name: YouTube Music Scrobble Sync
 
 on:
-  schedule:
-     - cron: '37 16 * * *' # 10:07 PM IST
+  # schedule:
+  #    - cron: '37 16 * * *' # 10:07 PM IST (commented out - using cron-job.org as primary scheduler)
   push:
     branches: [master] # Trigger on push to master branch
   workflow_dispatch: # Allows manual triggering from GitHub UI

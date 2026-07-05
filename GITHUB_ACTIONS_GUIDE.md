@@ -6,8 +6,10 @@ This guide explains how to configure and use GitHub Actions to automatically run
 
 Instead of running the scrobbler manually, you can use a GitHub Actions workflow to run it automatically. This automates the process of fetching your YouTube Music history and scrobbling it to Last.fm. To do this securely, we use GitHub Secrets to store your sensitive information instead of committing them to the repository.
 
+**Recommended Approach:** Use [cron-job.org](https://cron-job.org) to trigger the workflow externally for more reliable execution timing. See the [README](README.md#-automation-recommended-cron-joborg) for quick setup instructions.
+
 The workflow runs:
-- On a schedule (once daily at 23:55 IST)
+- On a schedule (once daily at 23:55 IST) - **commented out by default** (using cron-job.org instead)
 - On pushes to the master branch
 - Manually via the GitHub Actions UI
 - With automatic cookie validation and Discord notifications
@@ -56,8 +58,8 @@ The workflow is defined in `.github/workflows/sync.yml` with the following featu
 name: YouTube Music Scrobble Sync
 
 on:
-  schedule:
-    - cron: '25 18 * * *' # Daily at 23:55 IST (18:25 UTC)
+  # schedule:
+  #    - cron: '37 16 * * *' # 10:07 PM IST (commented out - using cron-job.org as primary scheduler)
   push:
     branches: [master] # Trigger on push to master branch
   workflow_dispatch: # Allows manual triggering from GitHub UI
@@ -66,18 +68,16 @@ jobs:
   scrobble:
     runs-on: ubuntu-latest
     environment: production
-    outputs:
-      scrobble_log: ${{ steps.scrobbler.outputs.scrobble_log }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -85,6 +85,7 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -98,21 +99,14 @@ jobs:
             ${{ runner.os }}-scrobble-db-
 
       - name: Run YouTube Music Scrobbler
-        id: scrobbler
         env:
           LAST_FM_API: ${{ secrets.LAST_FM_API }}
           LAST_FM_API_SECRET: ${{ secrets.LAST_FM_API_SECRET }}
           LASTFM_SESSION: ${{ secrets.LASTFM_SESSION }}
           YTMUSIC_AUTH_KEY: ${{ secrets.YTMUSIC_AUTH_KEY }}
-        run: |
-          echo "Starting YouTube Music Scrobbler..."
-          output=$(python start_ytm_scobble.py)
-          echo "$output"
-          echo "scrobble_log<<EOF" >> $GITHUB_OUTPUT
-          echo "$output" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "YouTube Music Scrobbler finished."
-         
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python start_ytm_scobble.py
+
   notify_failure:
     needs: scrobble
     runs-on: ubuntu-latest
@@ -121,35 +115,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Send Discord notification
+
+      - name: Send Discord failure notification
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SCROBBLE_LOG: ${{ needs.scrobble.outputs.scrobble_log }}
         run: |
           pip install requests
           python .github/scripts/send_failure_notification.py
-
-  notify_success:
-    needs: scrobble
-    runs-on: ubuntu-latest
-    if: success()
-    environment: production
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Send Discord notification
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SCROBBLE_LOG: ${{ needs.scrobble.outputs.scrobble_log }}
-        run: |
-          pip install requests
-          python .github/scripts/send_success_notification.py
 ```
 
 ### How it Works
 
-- **`on.schedule`**: Runs once daily at 23:55 IST (18:25 UTC)
-- **Timezone note**: GitHub cron is UTC. If you change local timezone but want to keep 23:55 local execution, update the cron UTC conversion in `.github/workflows/sync.yml`.
+- **`on.schedule`**: **Commented out by default** - Using cron-job.org as primary scheduler for better reliability
 - **`on.push`**: Runs when code is pushed to master branch
 - **`on.workflow_dispatch`**: Allows manual triggering
 - **Cookie validation**: The script validates your YouTube Music cookie before processing
@@ -157,13 +134,29 @@ jobs:
 - **Database caching**: The scrobble database is cached between runs
 - **Environment**: All secrets are accessed through the `production` environment
 
+### Enabling GitHub Actions Scheduler (Optional)
+
+If you prefer to use GitHub Actions' built-in scheduler instead of cron-job.org:
+
+1. Open `.github/workflows/sync.yml`
+2. Uncomment the schedule section:
+   ```yaml
+   on:
+     schedule:
+       - cron: '37 16 * * *' # 10:07 PM IST
+   ```
+3. Commit and push the changes
+
+**Note:** The built-in scheduler may experience delays on the free tier due to shared runner load.
+
 ## 3. Running the Workflow
 
 You can trigger the workflow in several ways:
 
-*   **Scheduled:** Runs once daily at 23:55 IST (18:25 UTC)
+*   **Scheduled (Recommended):** Use [cron-job.org](https://cron-job.org) for reliable daily execution at 23:55 IST
 *   **Manual:** Click "Run workflow" button in the GitHub Actions UI
 *   **Push:** Triggered when commits are pushed to master or dev branches
+*   **GitHub Actions Scheduler (Optional):** Uncomment the schedule in the workflow file (less reliable on free tier)
 
 ## 4. Cookie Validation and Notifications
 
@@ -203,3 +196,9 @@ You can trigger the workflow in several ways:
 -   **Notifications not received:**
     -   Verify `DISCORD_WEBHOOK_URL` secret is correctly configured
     -   Check that the Discord webhook URL is valid and has proper permissions
+
+-   **cron-job.org not triggering workflow:**
+    -   Verify your GitHub PAT has the correct permissions (Actions → Read and Write)
+    -   Check the cron-job.org execution logs for HTTP status codes
+    -   Test the API endpoint manually with curl or Postman
+    -   Ensure the workflow file is on the master branch

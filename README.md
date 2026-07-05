@@ -63,86 +63,84 @@ On the first run, it will open your browser to authorize Last.fm. Once done, a `
 
 ---
 
-## 🤖 Automation (GitHub Actions)
+## 🤖 Automation (Recommended: cron-job.org)
 
-You can run this scrobbler every 30 minutes automatically using GitHub Actions.
+The recommended way to automate scrobbling is using [cron-job.org](https://cron-job.org) to trigger GitHub Actions workflows externally. This approach is more reliable than GitHub Actions' built-in scheduler, which can experience delays on the free tier.
 
-1.  Follow the [**GitHub Actions Guide**](GITHUB_ACTIONS_GUIDE.md) for detailed instructions.
-2.  Add your secrets to the repository:
-    - `LAST_FM_API`, `LAST_FM_API_SECRET`, `LASTFM_SESSION`
-    - `YTMUSIC_AUTH_KEY`, `DISCORD_WEBHOOK_URL`
-3.  Commit `browser.json.enc` (but **NEVER** `browser.json`).
+### Why cron-job.org?
+- **More reliable execution timing** - No delays from shared runner load
+- **External scheduling** - Independent of GitHub's scheduler
+- **Easy testing** - Use the "Run now" button for immediate testing
+- **No workflow changes needed** - Works with the existing GitHub Actions setup
 
-## Alternative Scheduling Using cron-job.org
+### Quick Setup
 
-GitHub Actions scheduled workflows (`cron`) on the free tier can occasionally be delayed due to shared runner load.  
-To achieve more reliable execution timing, this project can also be triggered externally using [cron-job.org](https://cron-job.org).
+1. **Create a GitHub Personal Access Token** (Fine-grained recommended)
+   - Required permissions:
+     - Actions → Read and Write
+     - Contents → Read
 
-### Setup
+2. **Create a cronjob on cron-job.org** with these settings:
 
-1. Create a GitHub Personal Access Token (Fine-grained recommended)
+   **URL:**
+   ```
+   https://api.github.com/repos/<username>/youtube-music-scrobbler/actions/workflows/sync.yml/dispatches
+   ```
 
-Required permissions:
-- Actions → Read and Write
-- Contents → Read
+   **Method:** `POST`
 
-2. Create a cronjob on cron-job.org
+   **Headers:**
+   ```
+   Content-Type: application/json
+   Accept: application/vnd.github+json
+   Authorization: Bearer YOUR_GITHUB_PAT
+   ```
 
-### Request Configuration
+   **Request Body:**
+   ```json
+   {
+     "ref": "master"
+   }
+   ```
 
-#### URL
+   **Schedule (Daily at 10:00 PM IST):**
+   ```
+   30 16 * * *
+   ```
+   (GitHub API expects UTC time)
 
-```text
-https://api.github.com/repos/<username>/youtube-music-scrobbler/actions/workflows/sync.yml/dispatches
-```
+3. **Add secrets to your repository** (if not already configured):
+   - `LAST_FM_API`, `LAST_FM_API_SECRET`, `LASTFM_SESSION`
+   - `YTMUSIC_AUTH_KEY`, `DISCORD_WEBHOOK_URL`
 
-#### Method
+4. **Test the setup** using the **Run now** option in cron-job.org
 
-```text
-POST
-```
-
-#### Headers
-
-```text
-Content-Type: application/json
-Accept: application/vnd.github+json
-Authorization: Bearer YOUR_GITHUB_PAT
-```
-
-#### Request Body
-
-```json
-{
-  "ref": "master"
-}
-```
-
-### Schedule
-
-For daily execution at 10:00 PM IST:
-
-```cron
-30 16 * * *
-```
-
-(GitHub API expects UTC time)
-
-### Testing
-
-Use the **Run now** option in cron-job.org to verify the workflow dispatch works correctly.
-
-You can monitor workflow executions here:
-
-```text
-https://github.com/<username>/youtube-music-scrobbler/actions
-```
+5. **Monitor executions** at:
+   ```
+   https://github.com/<username>/youtube-music-scrobbler/actions
+   ```
 
 ### Security Note
-
 Never commit or expose your GitHub Personal Access Token publicly.  
 If a token is accidentally exposed, revoke it immediately and generate a new one.
+
 ---
+
+## Alternative: GitHub Actions Built-in Scheduler
+
+GitHub Actions also has a built-in scheduler, but it's less reliable on the free tier. If you prefer to use it instead of cron-job.org:
+
+1.  Follow the [**GitHub Actions Guide**](GITHUB_ACTIONS_GUIDE.md) for detailed instructions.
+2.  Uncomment the `schedule` section in `.github/workflows/sync.yml`:
+    ```yaml
+    on:
+      schedule:
+        - cron: '37 16 * * *' # 10:07 PM IST
+    ```
+3.  Add your secrets to the repository (same as above).
+4.  Commit `browser.json.enc` (but **NEVER** `browser.json`).
+
+**Note:** The built-in scheduler is commented out by default in favor of cron-job.org for better reliability.
 
 ## 🛠️ Project Structure
 
