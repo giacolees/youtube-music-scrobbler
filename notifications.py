@@ -6,7 +6,7 @@ about scrobbling results.
 import os
 import requests
 from datetime import UTC, datetime
-from typing import Mapping, Optional
+from typing import Optional
 
 
 def build_sync_footer_text(
@@ -45,16 +45,6 @@ def format_listening_duration(total_minutes: int) -> str:
     return f"{listening_hours}h {listening_mins}m"
 
 
-def extract_flow_minutes(flow: Optional[Mapping[str, int]]) -> tuple[int, int, int]:
-    """Get Evening, Afternoon, Late Night minutes with safe defaults."""
-    flow = flow or {}
-    return (
-        int(flow.get("Evening", 0)),
-        int(flow.get("Afternoon", 0)),
-        int(flow.get("Late Night", 0)),
-    )
-
-
 def send_success_notification(
     history_count: int,
     today_count: int,
@@ -70,10 +60,6 @@ def send_success_notification(
     love_failed_songs: list = None,
     unique_artist_count: int = 0,
     unique_album_count: int = 0,
-    listening_flow_minutes: Optional[Mapping[str, int]] = None,
-    most_played_artist: str = "Unknown",
-    longest_streak_tracks: int = 0,
-    longest_streak_minutes: int = 0,
     report_now: Optional[datetime] = None
 ):
     """
@@ -96,10 +82,6 @@ def send_success_notification(
         love_failed_songs: List of songs that failed to be loved (optional)
         unique_artist_count: Unique artists from today's songs
         unique_album_count: Unique albums from today's songs
-        listening_flow_minutes: Approx minute distribution across dayparts
-        most_played_artist: Most frequently played artist today
-        longest_streak_tracks: Longest contiguous streak in today's sequence
-        longest_streak_minutes: Duration of longest streak in minutes
         report_now: timezone-aware datetime to use for report date
     """
     webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
@@ -133,8 +115,6 @@ def send_success_notification(
     else:
         liked_today_lines.append("- None")
 
-    evening_minutes, afternoon_minutes, late_night_minutes = extract_flow_minutes(listening_flow_minutes)
-
     body_lines = [
         f"# Scrobble Report — {title_date}",
         "```txt",
@@ -145,13 +125,6 @@ def send_success_notification(
         "```",
         "## Liked Today",
         *liked_today_lines,
-        "## Listening Flow",
-        f"- Evening • {evening_minutes}m",
-        f"- Afternoon • {afternoon_minutes}m",
-        f"- Late Night • {late_night_minutes}m",
-        "## Highlights",
-        f"- Longest Streak — {longest_streak_tracks} tracks • {longest_streak_minutes}m",
-        f"- Most Played — {most_played_artist}",
     ]
     if love_failed_count > 0 and love_failed_songs:
         body_lines.append("## Love Failures")

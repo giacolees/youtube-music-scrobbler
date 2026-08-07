@@ -28,7 +28,7 @@ You need to add the following secrets to your GitHub repository. It is recommend
 
 ### Optional Environment Variable (Non-Secret)
 
--   `SCROBBLE_TIMEZONE`: IANA timezone used for report date/listening flow buckets (default: `Asia/Kolkata`)
+-   `SCROBBLE_TIMEZONE`: IANA timezone used for report date (default: `Asia/Kolkata`)
 
 ### Security: Encrypting your YouTube Music Auth
 
