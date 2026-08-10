@@ -393,6 +393,47 @@ class PositionTracker:
         pass
     
     @staticmethod
+    def _is_recent_replay(played_at: Optional[str], scrobbled_at_str: Optional[str]) -> bool:
+        """
+        Determine whether a track at Position 1 represents a continuous single-track loop replay.
+
+        Compares the freshness of YouTube Music's 'playedAt' string against the previous
+        'scrobbled_at' timestamp stored in SQLite. If playedAt indicates active playback
+        ("just now", "1 minute ago", etc.) and the previous scrobble occurred at least 120
+        seconds ago, this evaluates as a valid loop replay.
+
+        Args:
+            played_at: Relative timestamp string from YouTube Music (e.g., 'Just now', '2 minutes ago').
+            scrobbled_at_str: Timestamp string of the previous scrobble from SQLite database.
+
+        Returns:
+            True if the playback represents a fresh loop replay older than 120 seconds, False otherwise.
+        """
+        if not played_at:
+            return False
+        played_at_lower = played_at.lower()
+        recent_keywords = ("just now", "1 minute", "2 minute", "3 minute", "4 minute", "5 minute", "second")
+        if not any(kw in played_at_lower for kw in recent_keywords):
+            return False
+
+        if not scrobbled_at_str:
+            return True
+
+        try:
+            clean_time_str = scrobbled_at_str.split('.')[0]
+            if 'T' in clean_time_str:
+                from datetime import datetime, timezone
+                scrobbled_dt = datetime.fromisoformat(clean_time_str).replace(tzinfo=timezone.utc)
+                scrobbled_time = scrobbled_dt.timestamp()
+            else:
+                # SQLite CURRENT_TIMESTAMP stores in UTC, so use calendar.timegm (not time.mktime)
+                import calendar
+                scrobbled_time = calendar.timegm(time.strptime(clean_time_str, "%Y-%m-%d %H:%M:%S"))
+            return (time.time() - scrobbled_time) > 120
+        except Exception:
+            return True
+
+    @staticmethod
     def detect_songs_to_scrobble(
         today_songs: List[Dict[str, str]],
         database_songs: List[Dict],
@@ -400,9 +441,20 @@ class PositionTracker:
         max_first_time_songs: int = 10
     ) -> List[Dict]:
         """
-        Determine which songs should be scrobbled based on position tracking.
-        Filters out songs with missing metadata BEFORE processing to avoid
-        index mismatches.
+        Evaluate YouTube Music history against SQLite database records to determine scrobble eligibility.
+
+        Applies dual-pattern replay mitigation:
+        1. Interleaved Replays (A -> B -> A): Detected when current_position < saved_position ('reproduction').
+        2. Continuous Loops (A -> A -> A): Detected when position == 1 and _is_recent_replay is True ('loop_reproduction').
+
+        Args:
+            today_songs: List of song dictionaries fetched from YouTube Music history today.
+            database_songs: List of song records fetched from SQLite database.
+            is_first_time: Flag indicating initial repository setup run.
+            max_first_time_songs: Maximum songs to scrobble on first-time setup.
+
+        Returns:
+            List of dictionaries containing 'song', 'position', 'reason', 'should_scrobble', and optional 'previous_position'.
         """
         songs_to_scrobble = []
         
@@ -442,9 +494,12 @@ class PositionTracker:
                 # Find matching song in database
                 saved_song = None
                 for db_song in database_songs:
-                    if (db_song.get('title') == song['title'] and 
-                        db_song.get('artist') == song['artist'] and 
-                        db_song.get('album') == song['album']):
+                    db_title = db_song.get('title') or db_song.get('track_name')
+                    db_artist = db_song.get('artist') or db_song.get('artist_name')
+                    db_album = db_song.get('album') or db_song.get('album_name')
+                    if (db_title == song['title'] and 
+                        db_artist == song['artist'] and 
+                        db_album == song['album']):
                         saved_song = db_song
                         break
                 
@@ -457,13 +512,22 @@ class PositionTracker:
                         'should_scrobble': True
                     })
                 elif current_position < saved_song.get('array_position', float('inf')):
-                    # Re-reproduction - song moved up in the list
+                    # Re-reproduction (Pattern A -> B -> A) - song moved up in the list
                     songs_to_scrobble.append({
                         'song': song,
                         'position': current_position,
                         'reason': 'reproduction',
                         'should_scrobble': True,
                         'previous_position': saved_song.get('array_position')
+                    })
+                elif current_position == 1 and saved_song.get('array_position') == 1 and PositionTracker._is_recent_replay(song.get('playedAt'), saved_song.get('scrobbled_at')):
+                    # Continuous loop reproduction (Pattern A -> A -> A) - top track replayed on loop
+                    songs_to_scrobble.append({
+                        'song': song,
+                        'position': current_position,
+                        'reason': 'loop_reproduction',
+                        'should_scrobble': True,
+                        'previous_position': 1
                     })
                 else:
                     # Song exists and hasn't moved up - just update position

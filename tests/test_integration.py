@@ -100,8 +100,8 @@ def test_most_played_passed_to_notification_when_repeated(tmp_path, monkeypatch,
 
     process = s.ImprovedProcess()
     assert process.execute() is True
-    assert capture_notification["most_played_song"] == "[Song 1 — Artist 1](https://music.youtube.com/search?q=Song%201%20Artist%201)"
-    assert capture_notification["most_played_artist"] == "Artist 1"
+    assert capture_notification["most_played_song"] == ("Song 1 — Artist 1", 2)
+    assert capture_notification["most_played_artist"] == ("Artist 1", 2)
 
 
 
@@ -233,7 +233,7 @@ def test_non_auth_failure_continues_and_tracks_failure(tmp_path, monkeypatch, ca
     assert rows == 3
 
 
-def test_dry_run_does_not_touch_database(tmp_path, monkeypatch, fake_scrobbler):
+def test_dry_run_persists_history_to_database(tmp_path, monkeypatch, fake_scrobbler):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("LASTFM_SESSION", raising=False)
     monkeypatch.setattr(s, "get_ytmusic_history", lambda: make_history(3))
@@ -245,4 +245,4 @@ def test_dry_run_does_not_touch_database(tmp_path, monkeypatch, fake_scrobbler):
     assert process.execute() is True
     assert process.session == "dry_run_session"
     rows = process.conn.execute("SELECT COUNT(*) FROM scrobbles").fetchone()[0]
-    assert rows == 0
+    assert rows == 3

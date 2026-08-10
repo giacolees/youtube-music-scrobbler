@@ -102,9 +102,9 @@ class TestRemovedListeningFlowAndHighlights:
         )
 
         content = captured["json"]["content"]
-        for forbidden in ("Listening Flow", "Highlights", "Longest Streak", "Most Played"):
+        for forbidden in ("Listening Flow", "Highlights", "Longest Streak", "Most Played Track", "Most Played Artist", "## Liked Today"):
             assert forbidden not in content
-        assert "## Liked Today" in content
+        assert "🎧 *Cruising through fresh tunes — no repeats or liked tracks yet today!*" in content
         assert "Scrobbled    3 tracks" in content
         assert "Listening" in content
         assert "7th Aug '26" in content
@@ -132,13 +132,14 @@ class TestMostPlayedSection:
         n.send_success_notification(
             history_count=3, today_count=3, existing_count=0,
             to_scrobble_count=3, scrobbled_count=3, failed_count=0,
-            most_played_song="Song A — Artist 1",
+            most_played_song=("Song A — Artist 1", 2),
         )
 
         content = captured["json"]["content"]
-        assert "## Most Played" in content
+        assert "## Most Played Track" in content
         assert "- Track • Song A — Artist 1" in content
-        assert "- Artist •" not in content
+        assert "- Repeat • 2 Times" in content
+        assert "## Most Played Artist" not in content
 
     def test_most_played_artist_only(self, monkeypatch):
         self._monkeypatch_webhook(monkeypatch)
@@ -157,13 +158,14 @@ class TestMostPlayedSection:
         n.send_success_notification(
             history_count=3, today_count=3, existing_count=0,
             to_scrobble_count=3, scrobbled_count=3, failed_count=0,
-            most_played_artist="Artist 1",
+            most_played_artist=("Artist 1", 3),
         )
 
         content = captured["json"]["content"]
-        assert "## Most Played" in content
+        assert "## Most Played Artist" in content
         assert "- Artist • Artist 1" in content
-        assert "- Track •" not in content
+        assert "- Songs Played Today • 3" in content
+        assert "## Most Played Track" not in content
 
     def test_both_most_played_song_and_artist(self, monkeypatch):
         self._monkeypatch_webhook(monkeypatch)
@@ -182,14 +184,17 @@ class TestMostPlayedSection:
         n.send_success_notification(
             history_count=3, today_count=3, existing_count=0,
             to_scrobble_count=3, scrobbled_count=3, failed_count=0,
-            most_played_song="Song A — Artist 1",
-            most_played_artist="Artist 1",
+            most_played_song=("Song A — Artist 1", 2),
+            most_played_artist=("Artist 1", 2),
         )
 
         content = captured["json"]["content"]
-        assert "## Most Played" in content
+        assert "## Most Played Track" in content
         assert "- Track • Song A — Artist 1" in content
+        assert "- Repeat • 2 Times" in content
+        assert "## Most Played Artist" in content
         assert "- Artist • Artist 1" in content
+        assert "- Songs Played Today • 2" in content
 
 
 
@@ -258,6 +263,34 @@ class TestSendSuccessNotification:
             love_failed_songs=["Song A — Artist A"],
         )
         assert "## Love Failures" in captured["json"]["content"]
+
+    def test_daily_cumulative_metrics_header_card(self, monkeypatch):
+        self._monkeypatch_webhook(monkeypatch)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, **kwargs):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr(n.requests, "post", fake_post)
+        n.send_success_notification(
+            history_count=200,
+            today_count=12,
+            existing_count=10,
+            to_scrobble_count=2,
+            scrobbled_count=2,
+            failed_count=0,
+            unique_artist_count=12,
+            unique_album_count=12,
+        )
+        content = captured["json"]["content"]
+        assert "Scrobbled    12 tracks" in content
+        assert "Listening    0h 48m" in content
+        assert "GitHub Actions sync • 2 successful • 0 loved • 2 scrobbled" in content
 
 
 class TestSendFailureNotification:

@@ -47,17 +47,18 @@ CREATE TABLE IF NOT EXISTS scrobbles (
     scrobbled_at TEXT DEFAULT CURRENT_TIMESTAMP,
     array_position INTEGER,
     max_array_position INTEGER,
-    is_first_time_scrobble BOOLEAN DEFAULT FALSE
+    is_first_time_scrobble BOOLEAN DEFAULT FALSE,
+    play_count INTEGER DEFAULT 1
 )
 ```
 
 ## Scrobbling Logic
 
-The application uses a "Position Tracking" system:
-- It tracks the position of songs in your "Today" history.
-- If a song's position increases or a new song appears, it triggers a scrobble.
-- This handles cases where songs are re-played or the history is updated.
-- **Timestamp Generation**: It uses artificial timestamps (90-second intervals) to ensure songs are scrobbled in the correct order, as YouTube Music history doesn't provide exact play times.
+The application uses a dual-pattern "Position Tracking" system:
+- **Interleaved Replays (`A → B → A`)**: Detects when a song's array position moves up (`current_position < saved_position`), scrobbling each interleaved replay to Last.fm.
+- **Continuous Loops (`A → A → A`)**: Detects single-track loops at Position 1 by comparing `playedAt` timestamp freshness against SQLite `scrobbled_at` records (scrobbling if playback is > 120s old).
+- **Persistent Play Counts**: Tracks `play_count` in `data.db` to calculate cumulative daily scrobbles and render dedicated **Most Played Track** and **Most Played Artist** notification sections.
+- **Timestamp Generation**: Uses artificial timestamps (90-second intervals) to ensure songs are scrobbled in chronological order.
 - **Filtering**: It filters for songs played today using `date_detection.py`.
 
 ## GitHub Actions Integration

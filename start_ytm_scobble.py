@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import logging
 from collections import Counter
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dotenv import set_key
 
@@ -48,19 +48,20 @@ def get_scrobble_now() -> datetime:
     return datetime.now(get_scrobble_timezone())
 
 
-def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]]) -> Optional[str]:
+def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]], cursor: Optional[sqlite3.Cursor] = None) -> Optional[Tuple[str, int]]:
     """
     Compute the most frequently played song in today's songs.
 
     Only returns a song if it was played more than once (count > 1).
-    In case of ties, the song that appeared first in today's history is returned.
+    Checks today's history list first; if YouTube Music returned single items,
+    falls back to querying persistent play_count from SQLite database.
 
     Args:
         today_songs: List of song dictionaries containing 'title', 'artist', and optional 'videoId'.
+        cursor: Optional SQLite cursor to query persistent play_count from data.db.
 
     Returns:
-        Formatted markdown link '[Title — Artist](url)' (or '[Title](url)') if max plays > 1,
-        otherwise None.
+        Tuple of (title_str, repeat_count) if max plays > 1, otherwise None.
     """
     valid_songs = [
         (song.get("title"), song.get("artist"))
@@ -72,27 +73,40 @@ def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]]) -> Opt
 
     counts = Counter(valid_songs)
     _, max_count = counts.most_common(1)[0]
-    if max_count <= 1:
-        return None
+    if max_count > 1:
+        first_index = {}
+        for idx, song in enumerate(valid_songs):
+            if song not in first_index:
+                first_index[song] = idx
 
-    first_index = {}
-    for idx, song in enumerate(valid_songs):
-        if song not in first_index:
-            first_index[song] = idx
+        top_candidates = [s for s, c in counts.items() if c == max_count]
+        best_title, best_artist = min(top_candidates, key=lambda s: first_index[s])
 
-    top_candidates = [s for s, c in counts.items() if c == max_count]
-    best_title, best_artist = min(top_candidates, key=lambda s: first_index[s])
+        video_id = None
+        for song in today_songs:
+            if song.get("title") == best_title and song.get("artist") == best_artist:
+                video_id = song.get("videoId")
+                break
 
-    video_id = None
-    for song in today_songs:
-        if song.get("title") == best_title and song.get("artist") == best_artist:
-            video_id = song.get("videoId")
-            break
+        title_str = f"{best_title} — {best_artist}" if best_artist else best_title
+        return (title_str, max_count)
 
-    return format_song_with_link(best_title, best_artist, video_id)
+    if cursor:
+        try:
+            row = cursor.execute(
+                'SELECT track_name, artist_name, play_count FROM scrobbles WHERE play_count > 1 ORDER BY play_count DESC, scrobbled_at DESC'
+            ).fetchone()
+            if row:
+                best_title, best_artist, play_count = row
+                title_str = f"{best_title} — {best_artist}" if best_artist else best_title
+                return (title_str, play_count)
+        except Exception:
+            pass
+
+    return None
 
 
-def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]]) -> Optional[str]:
+def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]], cursor: Optional[sqlite3.Cursor] = None) -> Optional[Tuple[str, int]]:
     """
     Compute the most frequently played artist in today's songs.
 
@@ -101,9 +115,10 @@ def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]]) -> O
 
     Args:
         today_songs: List of song dictionaries containing 'artist'.
+        cursor: Optional SQLite cursor to query persistent play_count from data.db.
 
     Returns:
-        Artist name string if max plays > 1, otherwise None.
+        Tuple of (artist_name, total_plays) if max plays > 1, otherwise None.
     """
     artists = [song.get("artist") for song in today_songs if song.get("artist")]
     if not artists:
@@ -111,16 +126,29 @@ def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]]) -> O
 
     counts = Counter(artists)
     _, max_count = counts.most_common(1)[0]
-    if max_count <= 1:
-        return None
+    if max_count > 1:
+        first_index = {}
+        for idx, artist in enumerate(artists):
+            if artist not in first_index:
+                first_index[artist] = idx
 
-    first_index = {}
-    for idx, artist in enumerate(artists):
-        if artist not in first_index:
-            first_index[artist] = idx
+        top_candidates = [a for a, c in counts.items() if c == max_count]
+        best_artist = min(top_candidates, key=lambda a: first_index[a])
+        return (best_artist, max_count)
 
-    top_candidates = [a for a, c in counts.items() if c == max_count]
-    return min(top_candidates, key=lambda a: first_index[a])
+    if cursor:
+        try:
+            row = cursor.execute(
+                'SELECT artist_name, SUM(play_count) as total_plays FROM scrobbles GROUP BY artist_name HAVING total_plays > 1 ORDER BY total_plays DESC'
+            ).fetchone()
+            if row:
+                artist_name, total_plays = row
+                return (artist_name, total_plays)
+        except Exception:
+            pass
+
+    return None
+
 
 
 # --- Last.fm Authentication ---
@@ -183,7 +211,8 @@ class ImprovedProcess:
                 scrobbled_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 array_position INTEGER,
                 max_array_position INTEGER,
-                is_first_time_scrobble BOOLEAN DEFAULT FALSE
+                is_first_time_scrobble BOOLEAN DEFAULT FALSE,
+                play_count INTEGER DEFAULT 1
             )
         ''')
         
@@ -194,6 +223,11 @@ class ImprovedProcess:
         
         try:
             cursor.execute('ALTER TABLE scrobbles ADD COLUMN is_first_time_scrobble BOOLEAN DEFAULT FALSE')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE scrobbles ADD COLUMN play_count INTEGER DEFAULT 1')
         except sqlite3.OperationalError:
             pass
 
@@ -254,7 +288,7 @@ class ImprovedProcess:
 
         if self.dry_run:
             logger.info("--- DRY RUN MODE ENABLED ---")
-            logger.info("No scrobbles will be sent to Last.fm and database will not be updated.")
+            logger.info("No scrobbles will be sent to Last.fm. History positions will still persist to data.db.")
 
         logger.info("Fetching YouTube Music history...")
         try:
@@ -278,11 +312,11 @@ class ImprovedProcess:
         cursor = self.conn.cursor()
         db_songs = cursor.execute('''
             SELECT track_name, artist_name, album_name, array_position, 
-                   max_array_position, is_first_time_scrobble
+                   max_array_position, is_first_time_scrobble, scrobbled_at
             FROM scrobbles
         ''').fetchall()
         
-        database_songs = [{'title': r[0], 'artist': r[1], 'album': r[2], 'array_position': r[3], 'max_array_position': r[4] or r[3], 'is_first_time': bool(r[5])} for r in db_songs]
+        database_songs = [{'title': r[0], 'artist': r[1], 'album': r[2], 'array_position': r[3], 'max_array_position': r[4] or r[3], 'is_first_time': bool(r[5]), 'scrobbled_at': r[6]} for r in db_songs]
 
         is_first_time = len(database_songs) == 0
         
@@ -356,19 +390,22 @@ class ImprovedProcess:
                     else:
                         failed_songs.append(f"{song['title']} by {song['artist']}")
                 
-                if not self.dry_run:
-                    existing_song = cursor.execute('SELECT id, max_array_position FROM scrobbles WHERE track_name = ? AND artist_name = ? AND album_name = ?', (song['title'], song['artist'], song['album'])).fetchone()
-                    
-                    if existing_song:
-                        song_id, current_max = existing_song
-                        new_max = max(current_max or position, position)
-                        cursor.execute('UPDATE scrobbles SET array_position = ?, max_array_position = ?, scrobbled_at = CURRENT_TIMESTAMP WHERE id = ?', (position, new_max, song_id))
-                    else:
-                        cursor.execute('INSERT INTO scrobbles (track_name, artist_name, album_name, array_position, max_array_position, is_first_time_scrobble) VALUES (?, ?, ?, ?, ?, ?)', (song['title'], song['artist'], song['album'], position, position, is_first_time))
-                    
-                    self.conn.commit()
+                reason = item.get('reason')
+                should_scrobble = item.get('should_scrobble', False)
+
+                existing_song = cursor.execute('SELECT id, max_array_position, play_count FROM scrobbles WHERE track_name = ? AND artist_name = ? AND album_name = ?', (song['title'], song['artist'], song['album'])).fetchone()
+                
+                if existing_song:
+                    song_id, current_max, current_play_count = existing_song
+                    new_max = max(current_max or position, position)
+                    is_replay = (reason in ('reproduction', 'loop_reproduction')) or (should_scrobble and reason != 'first_time_no_scrobble' and position < (current_max or position))
+                    new_play_count = (current_play_count or 1) + (1 if is_replay else 0)
+                    cursor.execute('UPDATE scrobbles SET array_position = ?, max_array_position = ?, play_count = ?, scrobbled_at = CURRENT_TIMESTAMP WHERE id = ?', (position, new_max, new_play_count, song_id))
                 else:
-                    logger.debug(f"Dry run: Skipping database update for {song['title']}")
+                    initial_play_count = 1
+                    cursor.execute('INSERT INTO scrobbles (track_name, artist_name, album_name, array_position, max_array_position, is_first_time_scrobble, play_count) VALUES (?, ?, ?, ?, ?, ?, ?)', (song['title'], song['artist'], song['album'], position, position, is_first_time, initial_play_count))
+                
+                self.conn.commit()
                 
             except Exception as error:
                 failure_type = self.scrobbler.categorize_error(error)
@@ -378,6 +415,15 @@ class ImprovedProcess:
                     break
                 failed_songs.append(f"{song['title']} by {song['artist']}")
 
+        report_now = get_scrobble_now()
+        most_played_song = compute_most_played_song(today_songs, cursor=cursor)
+        most_played_artist = compute_most_played_artist(today_songs, cursor=cursor)
+
+        try:
+            total_today_scrobbles = cursor.execute('SELECT SUM(play_count) FROM scrobbles').fetchone()[0] or len(today_songs)
+        except Exception:
+            total_today_scrobbles = len(today_songs)
+
         cursor.close()
 
         logger.info(
@@ -385,14 +431,10 @@ class ImprovedProcess:
             f"Failed: {len(failed_songs)}, Loved: {loved_count}, LoveFailed: {love_failed_count}"
         )
 
-        report_now = get_scrobble_now()
-        most_played_song = compute_most_played_song(today_songs)
-        most_played_artist = compute_most_played_artist(today_songs)
-
         # Send Discord notification only if there were songs to scrobble
         send_success_notification(
             history_count=len(history),
-            today_count=len(today_songs),
+            today_count=total_today_scrobbles,
             existing_count=existing_count,
             to_scrobble_count=total_to_scrobble,
             scrobbled_count=songs_scrobbled,

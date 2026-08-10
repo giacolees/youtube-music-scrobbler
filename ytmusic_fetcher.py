@@ -27,6 +27,7 @@ class YTMusicFetcher:
                 
                 decrypted_data = fernet.decrypt(encrypted_data)
                 auth_data = json.loads(decrypted_data)
+                self._validate_auth_data(auth_data)
                 
                 # ytmusicapi can take the dict directly
                 self.ytmusic = YTMusic(auth_data)
@@ -40,7 +41,19 @@ class YTMusicFetcher:
                 f"Authentication file not found at '{auth_file}' and no valid "
                 f"encrypted file/key found. Please make sure one exists."
             )
+        with open(auth_file, "r") as f:
+            auth_data = json.load(f)
+        self._validate_auth_data(auth_data)
         self.ytmusic = YTMusic(auth_file)
+
+    def _validate_auth_data(self, auth_data: dict) -> None:
+        """Pre-flight check to verify essential YouTube Music auth headers/cookies exist."""
+        cookie_val = str(auth_data.get("cookie") or auth_data.get("Cookie") or "")
+        if cookie_val and "__Secure-3PAPISID=" not in cookie_val:
+            raise ValueError(
+                "YouTube Music credentials are missing '__Secure-3PAPISID' token. "
+                "Please update your browser.json header credentials."
+            )
 
     def get_history(self) -> List[Dict[str, str]]:
         """

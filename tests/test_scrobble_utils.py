@@ -13,8 +13,8 @@ from scrobble_utils import (
 )
 
 
-def song(title, artist="Artist", album="Album"):
-    return {"title": title, "artist": artist, "album": album}
+def song(title, artist="Artist", album="Album", played_at="Today"):
+    return {"title": title, "artist": artist, "album": album, "playedAt": played_at}
 
 
 class TestCleanMetadata:
@@ -207,3 +207,27 @@ class TestPositionTracker:
         by_title = {r["song"]["title"]: r for r in result}
         assert by_title["S1"]["should_scrobble"] is False
         assert by_title["S1"]["reason"] == "position_update"
+
+    def test_interleaved_replay_pattern_a_b_a(self):
+        # Step 1: Song A played (pos 2 in DB) -> Song A played again at Pos 1
+        db = [
+            {"title": "Song B", "artist": "Artist", "album": "Album", "array_position": 1},
+            {"title": "Song A", "artist": "Artist", "album": "Album", "array_position": 2},
+        ]
+        today = [song("Song A", played_at="Just now"), song("Song B", played_at="10 mins ago")]
+        result = PositionTracker.detect_songs_to_scrobble(today, db, is_first_time=False)
+        by_title = {r["song"]["title"]: r for r in result}
+        assert by_title["Song A"]["should_scrobble"] is True
+        assert by_title["Song A"]["reason"] == "reproduction"
+        assert by_title["Song A"]["previous_position"] == 2
+
+    def test_continuous_loop_replay_pattern_a_a_a(self):
+        # Song A is at Pos 1 in DB scrobbled 10 mins ago, and playedAt is "Just now" (loop replay)
+        from datetime import datetime, timezone, timedelta
+        ten_mins_ago = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+        db = [{"title": "Song A", "artist": "Artist", "album": "Album", "array_position": 1, "scrobbled_at": ten_mins_ago}]
+        today = [song("Song A", played_at="Just now")]
+        result = PositionTracker.detect_songs_to_scrobble(today, db, is_first_time=False)
+        assert len(result) == 1
+        assert result[0]["should_scrobble"] is True
+        assert result[0]["reason"] == "loop_reproduction"

@@ -150,38 +150,50 @@ def send_success_notification(
     now = report_now or datetime.now(UTC)
     title_date = format_report_date(now)
 
-    estimated_minutes = scrobbled_count * 4
+    display_scrobbled_count = today_count if today_count > 0 else scrobbled_count
+    estimated_minutes = display_scrobbled_count * 4
     listening_value = format_listening_duration(estimated_minutes)
-
-    liked_today_lines = []
-    if loved_songs:
-        max_items = 5
-        liked_today_lines.extend([f"- {song}" for song in loved_songs[:max_items]])
-        if len(loved_songs) > max_items:
-            liked_today_lines.append(f"- +{len(loved_songs) - max_items} more")
-    else:
-        liked_today_lines.append("- None")
-
-    most_played_lines = []
-    if most_played_song:
-        most_played_lines.append(f"- Track • {most_played_song}")
-    if most_played_artist:
-        most_played_lines.append(f"- Artist • {most_played_artist}")
 
     body_lines = [
         f"# Scrobble Report — {title_date}",
         "```txt",
-        f"Scrobbled    {scrobbled_count} tracks",
+        f"Scrobbled    {display_scrobbled_count} tracks",
         f"Listening    {listening_value}",
         f"Artists      {unique_artist_count}",
         f"Albums       {unique_album_count}",
         "```",
-        "## Liked Today",
-        *liked_today_lines,
     ]
-    if most_played_lines:
-        body_lines.append("## Most Played")
-        body_lines.extend(most_played_lines)
+
+    has_liked = bool(loved_songs)
+    has_most_played = bool(most_played_song or most_played_artist)
+
+    if has_liked:
+        body_lines.append("## Liked Today")
+        max_items = 5
+        body_lines.extend([f"- {song}" for song in loved_songs[:max_items]])
+        if len(loved_songs) > max_items:
+            body_lines.append(f"- +{len(loved_songs) - max_items} more")
+
+    if most_played_song:
+        body_lines.append("## Most Played Track")
+        if isinstance(most_played_song, tuple):
+            song_link, repeat_count = most_played_song
+            body_lines.append(f"- Track • {song_link}")
+            body_lines.append(f"- Repeat • {repeat_count} Times")
+        else:
+            body_lines.append(f"- Track • {most_played_song}")
+
+    if most_played_artist:
+        body_lines.append("## Most Played Artist")
+        if isinstance(most_played_artist, tuple):
+            artist_name, total_songs = most_played_artist
+            body_lines.append(f"- Artist • {artist_name}")
+            body_lines.append(f"- Songs Played Today • {total_songs}")
+        else:
+            body_lines.append(f"- Artist • {most_played_artist}")
+
+    if not has_liked and not has_most_played:
+        body_lines.append("🎧 *Cruising through fresh tunes — no repeats or liked tracks yet today!*")
 
     if love_failed_count > 0 and love_failed_songs:
         body_lines.append("## Love Failures")
