@@ -5,8 +5,51 @@ about scrobbling results.
 """
 import os
 import requests
+import urllib.parse
 from datetime import UTC, datetime
 from typing import Optional
+
+
+def build_ytmusic_url(title: str, artist: Optional[str] = None, video_id: Optional[str] = None) -> str:
+    """
+    Build YouTube Music URL for a song.
+
+    Uses a direct video link if video_id is present, otherwise falls back to a
+    YouTube Music search query URL.
+
+    Args:
+        title: Song title string.
+        artist: Optional artist name string.
+        video_id: Optional YouTube Music video ID string.
+
+    Returns:
+        YouTube Music URL string.
+    """
+    if video_id:
+        return f"https://music.youtube.com/watch?v={video_id}"
+    query_parts = [title]
+    if artist:
+        query_parts.append(artist)
+    query = " ".join(query_parts)
+    return f"https://music.youtube.com/search?q={urllib.parse.quote(query)}"
+
+
+def format_song_with_link(title: str, artist: Optional[str] = None, video_id: Optional[str] = None) -> str:
+    """
+    Format song name as a Discord-compatible markdown hyperlink to YouTube Music.
+
+    Args:
+        title: Song title string.
+        artist: Optional artist name string.
+        video_id: Optional YouTube Music video ID string.
+
+    Returns:
+        Formatted markdown hyperlink string `[Title — Artist](url)` or `[Title](url)`.
+    """
+    display_text = f"{title} — {artist}" if artist else title
+    url = build_ytmusic_url(title, artist, video_id)
+    return f"[{display_text}]({url})"
+
 
 
 def build_sync_footer_text(

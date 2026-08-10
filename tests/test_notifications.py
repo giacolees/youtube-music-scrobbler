@@ -14,6 +14,22 @@ class TestFooterText:
         assert n.build_sync_footer_text(3, 2, 1, 3) == "GitHub Actions sync • 3 successful • 2 failed • 1 loved • 3 scrobbled"
 
 
+class TestYTMusicUrlFormatting:
+    def test_build_ytmusic_url_with_video_id(self):
+        assert n.build_ytmusic_url("Song A", "Artist B", "vid123") == "https://music.youtube.com/watch?v=vid123"
+
+    def test_build_ytmusic_url_fallback_search(self):
+        assert n.build_ytmusic_url("Song A", "Artist B") == "https://music.youtube.com/search?q=Song%20A%20Artist%20B"
+        assert n.build_ytmusic_url("Song A") == "https://music.youtube.com/search?q=Song%20A"
+
+    def test_format_song_with_link_video_id(self):
+        assert n.format_song_with_link("Song A", "Artist B", "vid123") == "[Song A — Artist B](https://music.youtube.com/watch?v=vid123)"
+
+    def test_format_song_with_link_without_artist(self):
+        assert n.format_song_with_link("Song A", video_id="vid123") == "[Song A](https://music.youtube.com/watch?v=vid123)"
+        assert n.format_song_with_link("Song A") == "[Song A](https://music.youtube.com/search?q=Song%20A)"
+
+
 class TestFormatReportDate:
     def test_ordinals(self):
         for day, expected in [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"), (12, "12th"), (13, "13th"), (21, "21st"), (22, "22nd"), (23, "23rd")]:

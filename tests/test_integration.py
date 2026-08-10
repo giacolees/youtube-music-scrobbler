@@ -100,7 +100,7 @@ def test_most_played_passed_to_notification_when_repeated(tmp_path, monkeypatch,
 
     process = s.ImprovedProcess()
     assert process.execute() is True
-    assert capture_notification["most_played_song"] == "Song 1 — Artist 1"
+    assert capture_notification["most_played_song"] == "[Song 1 — Artist 1](https://music.youtube.com/search?q=Song%201%20Artist%201)"
     assert capture_notification["most_played_artist"] == "Artist 1"
 
 

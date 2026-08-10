@@ -30,8 +30,9 @@ pip install -r requirements.txt
 ## Core Components
 
 - `start_ytm_scobble.py`: Main entry point. Handles Last.fm OAuth and orchestrates the scrobbling process.
-- `ytmusic_fetcher.py`: Handles fetching history from YouTube Music.
+- `ytmusic_fetcher.py`: Handles fetching history (including track `videoId`) from YouTube Music.
 - `scrobble_utils.py`: Contains `SmartScrobbler` and `PositionTracker` for intelligent scrobbling logic.
+- `notifications.py`: Generates and dispatches Discord notifications, formatting track references with direct or search-fallback YouTube Music links.
 - `encrypt_auth.py`: Utility to encrypt `browser.json` into `browser.json.enc`.
 - `data.db`: SQLite database to track scrobble positions and prevent duplicates.
 

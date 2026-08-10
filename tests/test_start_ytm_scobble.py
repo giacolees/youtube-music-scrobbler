@@ -60,14 +60,14 @@ class TestComputeMostPlayedSong:
             {"title": "Song B", "artist": "Artist 2"},
             {"title": "Song A", "artist": "Artist 1"},
         ]
-        assert s.compute_most_played_song(songs) == "Song A — Artist 1"
+        assert s.compute_most_played_song(songs) == "[Song A — Artist 1](https://music.youtube.com/search?q=Song%20A%20Artist%201)"
 
     def test_song_missing_artist(self):
         songs = [
             {"title": "Song A", "artist": None},
             {"title": "Song A", "artist": None},
         ]
-        assert s.compute_most_played_song(songs) == "Song A"
+        assert s.compute_most_played_song(songs) == "[Song A](https://music.youtube.com/search?q=Song%20A)"
 
     def test_tie_breaks_by_first_occurrence(self):
         songs = [
@@ -76,7 +76,14 @@ class TestComputeMostPlayedSong:
             {"title": "Song B", "artist": "Artist 2"},
             {"title": "Song A", "artist": "Artist 1"},
         ]
-        assert s.compute_most_played_song(songs) == "Song A — Artist 1"
+        assert s.compute_most_played_song(songs) == "[Song A — Artist 1](https://music.youtube.com/search?q=Song%20A%20Artist%201)"
+
+    def test_song_with_video_id(self):
+        songs = [
+            {"title": "Song A", "artist": "Artist 1", "videoId": "abc123xyz"},
+            {"title": "Song A", "artist": "Artist 1", "videoId": "abc123xyz"},
+        ]
+        assert s.compute_most_played_song(songs) == "[Song A — Artist 1](https://music.youtube.com/watch?v=abc123xyz)"
 
 
 class TestComputeMostPlayedArtist:

@@ -8,7 +8,7 @@ An intelligent, automated scrobbler that syncs your YouTube Music history to Las
 - **Secure**: AES-256 encryption for your YouTube Music session cookies.
 - **Multilingual Support**: Advanced date detection for 50+ languages.
 - **Automated**: Integrated with GitHub Actions for 24/7 synchronization.
-- **Discord Notifications**: Get success/failure alerts for automated runs.
+- **Discord Notifications**: Detailed reports with clickable YouTube Music links for liked and most played tracks.
 - **Lightweight**: Minimal dependencies and efficient SQLite tracking.
 
 ---
@@ -21,23 +21,32 @@ An intelligent, automated scrobbler that syncs your YouTube Music history to Las
 - [Last.fm API Credentials](https://www.last.fm/api/account/create)
 
 ### 2. Setup YouTube Music Authentication
-To fetch your history, you need to provide your YouTube Music session headers.
+To fetch your history, generate and encrypt your YouTube Music session credentials:
 
 1.  **Generate `browser.json`**:
-    Follow the [ytmusicapi setup instructions](https://ytmusicapi.readthedocs.io/en/stable/setup/browser.html).
-    Essentially:
-    - Open YouTube Music in Chrome.
-    - Open Developer Tools (F12) -> Network Tab.
-    - Filter for `/browse`.
-    - Right-click the request -> Copy -> Copy as cURL (bash).
-    - Run `ytmusicapi browser` and paste the command when prompted.
-2.  **Encrypt your credentials**:
+    Follow the official [ytmusicapi setup instructions](https://ytmusicapi.readthedocs.io/en/stable/setup/browser.html):
+    - Open Developer Tools (`F12`) on [music.youtube.com](https://music.youtube.com) → **Network** tab.
+    - Filter for an authenticated POST request to `/browse`.
+    - Copy the request headers (or copy as fetch/Node.js).
+    - Run `ytmusicapi browser` (on macOS: `pbpaste | ytmusicapi browser`) and paste the headers when prompted.
+    - *Alternatively*, manually create `browser.json` with:
+      ```json
+      {
+          "Accept": "*/*",
+          "Authorization": "PASTE_AUTHORIZATION",
+          "Content-Type": "application/json",
+          "X-Goog-AuthUser": "0",
+          "x-origin": "https://music.youtube.com",
+          "Cookie": "PASTE_COOKIE"
+      }
+      ```
+2.  **Encrypt credentials**:
     ```bash
     python encrypt_auth.py
     ```
-    This will create `browser.json.enc` and output an **Encryption Key**.
-    - **SAVE THIS KEY!** You will need it for your `.env` or GitHub Secrets.
-    - Delete the original `browser.json` file.
+    This creates `browser.json.enc` and outputs your **`YTMUSIC_AUTH_KEY`**.
+    - **Save this key!** You will need it for your `.env` or GitHub Secrets.
+    - Delete `browser.json` (`rm browser.json`) so plain text credentials are never committed.
 
 ### 3. Installation
 ```bash
@@ -145,7 +154,8 @@ GitHub Actions also has a built-in scheduler, but it's less reliable on the free
 ## 🛠️ Project Structure
 
 - `start_ytm_scobble.py`: Main process and Last.fm OAuth handler.
-- `ytmusic_fetcher.py`: Fetches and parses YTM history.
+- `ytmusic_fetcher.py`: Fetches and parses YTM history with track IDs.
+- `notifications.py`: Generates Discord reports with clickable YouTube Music track links.
 - `scrobble_utils.py`: Logic for smart scrobbling and timestamp generation.
 - `encrypt_auth.py`: Tool for securing your YouTube Music credentials.
 - `data.db`: Local SQLite database tracking scrobble history.

@@ -21,7 +21,7 @@ from date_detection import (
     get_unknown_date_values,
     is_today_song,
 )
-from notifications import send_success_notification
+from notifications import format_song_with_link, send_success_notification
 from scrobble_utils import FailureType, PositionTracker, SmartScrobbler
 from song_matching import normalize_song_key
 from ytmusic_fetcher import get_ytmusic_history, get_ytmusic_liked_song_keys
@@ -56,10 +56,10 @@ def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]]) -> Opt
     In case of ties, the song that appeared first in today's history is returned.
 
     Args:
-        today_songs: List of song dictionaries containing 'title' and 'artist'.
+        today_songs: List of song dictionaries containing 'title', 'artist', and optional 'videoId'.
 
     Returns:
-        Formatted string 'Title — Artist' (or 'Title' if artist is missing) if max plays > 1,
+        Formatted markdown link '[Title — Artist](url)' (or '[Title](url)') if max plays > 1,
         otherwise None.
     """
     valid_songs = [
@@ -82,7 +82,14 @@ def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]]) -> Opt
 
     top_candidates = [s for s, c in counts.items() if c == max_count]
     best_title, best_artist = min(top_candidates, key=lambda s: first_index[s])
-    return f"{best_title} — {best_artist}" if best_artist else best_title
+
+    video_id = None
+    for song in today_songs:
+        if song.get("title") == best_title and song.get("artist") == best_artist:
+            video_id = song.get("videoId")
+            break
+
+    return format_song_with_link(best_title, best_artist, video_id)
 
 
 def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]]) -> Optional[str]:
@@ -337,7 +344,7 @@ class ImprovedProcess:
                             love_status = self.scrobbler.love_song(song, self.session)
                             if love_status == "loved":
                                 loved_count += 1
-                                loved_songs.append(f"{song['title']} — {song['artist']}")
+                                loved_songs.append(format_song_with_link(song['title'], song.get('artist'), song.get('videoId')))
                                 if not self.dry_run:
                                     cursor.execute(
                                         'INSERT OR IGNORE INTO loved_tracks (track_name, artist_name) VALUES (?, ?)',

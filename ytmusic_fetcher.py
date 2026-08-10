@@ -59,6 +59,7 @@ class YTMusicFetcher:
                 "artist": artist_name,
                 "album": album_name,
                 "playedAt": played_at,
+                "videoId": item.get('videoId'),
             })
         return songs
 
