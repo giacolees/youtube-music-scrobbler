@@ -8,7 +8,9 @@ import time
 import webbrowser
 import xml.etree.ElementTree as ET
 import logging
+from collections import Counter
 from datetime import datetime
+from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dotenv import set_key
 
@@ -44,6 +46,74 @@ def get_scrobble_timezone() -> ZoneInfo:
 def get_scrobble_now() -> datetime:
     """Get timezone-aware now using configured scrobble timezone."""
     return datetime.now(get_scrobble_timezone())
+
+
+def compute_most_played_song(today_songs: List[Dict[str, Optional[str]]]) -> Optional[str]:
+    """
+    Compute the most frequently played song in today's songs.
+
+    Only returns a song if it was played more than once (count > 1).
+    In case of ties, the song that appeared first in today's history is returned.
+
+    Args:
+        today_songs: List of song dictionaries containing 'title' and 'artist'.
+
+    Returns:
+        Formatted string 'Title — Artist' (or 'Title' if artist is missing) if max plays > 1,
+        otherwise None.
+    """
+    valid_songs = [
+        (song.get("title"), song.get("artist"))
+        for song in today_songs
+        if song.get("title")
+    ]
+    if not valid_songs:
+        return None
+
+    counts = Counter(valid_songs)
+    _, max_count = counts.most_common(1)[0]
+    if max_count <= 1:
+        return None
+
+    first_index = {}
+    for idx, song in enumerate(valid_songs):
+        if song not in first_index:
+            first_index[song] = idx
+
+    top_candidates = [s for s, c in counts.items() if c == max_count]
+    best_title, best_artist = min(top_candidates, key=lambda s: first_index[s])
+    return f"{best_title} — {best_artist}" if best_artist else best_title
+
+
+def compute_most_played_artist(today_songs: List[Dict[str, Optional[str]]]) -> Optional[str]:
+    """
+    Compute the most frequently played artist in today's songs.
+
+    Only returns an artist if they were played more than once (count > 1).
+    In case of ties, the artist that appeared first in today's history is returned.
+
+    Args:
+        today_songs: List of song dictionaries containing 'artist'.
+
+    Returns:
+        Artist name string if max plays > 1, otherwise None.
+    """
+    artists = [song.get("artist") for song in today_songs if song.get("artist")]
+    if not artists:
+        return None
+
+    counts = Counter(artists)
+    _, max_count = counts.most_common(1)[0]
+    if max_count <= 1:
+        return None
+
+    first_index = {}
+    for idx, artist in enumerate(artists):
+        if artist not in first_index:
+            first_index[artist] = idx
+
+    top_candidates = [a for a, c in counts.items() if c == max_count]
+    return min(top_candidates, key=lambda a: first_index[a])
 
 
 # --- Last.fm Authentication ---
@@ -309,6 +379,8 @@ class ImprovedProcess:
         )
 
         report_now = get_scrobble_now()
+        most_played_song = compute_most_played_song(today_songs)
+        most_played_artist = compute_most_played_artist(today_songs)
 
         # Send Discord notification only if there were songs to scrobble
         send_success_notification(
@@ -326,6 +398,8 @@ class ImprovedProcess:
             love_failed_songs=love_failed_songs if love_failed_songs else None,
             unique_artist_count=len({s.get("artist") for s in today_songs if s.get("artist")}),
             unique_album_count=len({s.get("album") for s in today_songs if s.get("album")}),
+            most_played_song=most_played_song,
+            most_played_artist=most_played_artist,
             report_now=report_now
         )
 

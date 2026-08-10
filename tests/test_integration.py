@@ -79,10 +79,30 @@ def test_first_run_scrobbles_limit_and_persists(tmp_path, monkeypatch, fake_scro
 
 def test_first_run_notification_has_no_removed_report_params(first_run):
     _, capture_notification = first_run
-    for removed in ("listening_flow_minutes", "most_played_artist", "longest_streak_tracks", "longest_streak_minutes"):
+    for removed in ("listening_flow_minutes", "longest_streak_tracks", "longest_streak_minutes"):
         assert removed not in capture_notification
+    assert "most_played_song" in capture_notification
+    assert "most_played_artist" in capture_notification
     assert "report_now" in capture_notification
     assert "unique_album_count" in capture_notification
+
+
+def test_most_played_passed_to_notification_when_repeated(tmp_path, monkeypatch, fake_scrobbler, capture_notification):
+    monkeypatch.chdir(tmp_path)
+    # 2 plays of Song 1 by Artist 1
+    history = [
+        {"title": "Song 1", "artist": "Artist 1", "album": "Album 1", "playedAt": "Today"},
+        {"title": "Song 1", "artist": "Artist 1", "album": "Album 1", "playedAt": "Today"},
+        {"title": "Song 2", "artist": "Artist 2", "album": "Album 2", "playedAt": "Today"},
+    ]
+    monkeypatch.setattr(s, "get_ytmusic_history", lambda: history)
+    monkeypatch.setattr(s, "get_ytmusic_liked_song_keys", lambda: set())
+
+    process = s.ImprovedProcess()
+    assert process.execute() is True
+    assert capture_notification["most_played_song"] == "Song 1 — Artist 1"
+    assert capture_notification["most_played_artist"] == "Artist 1"
+
 
 
 def test_loved_flow_records_loved_track(tmp_path, monkeypatch, fake_scrobbler):

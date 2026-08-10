@@ -30,15 +30,17 @@ class TestFormatListeningDuration:
 
 
 class TestRemovedListeningFlowAndHighlights:
-    """Regression tests for the current change: Listening Flow + Highlights removed."""
+    """Regression tests for Listening Flow + Streak Highlights remaining removed."""
 
     def test_extract_flow_minutes_removed(self):
         assert not hasattr(n, "extract_flow_minutes")
 
     def test_removed_params_not_in_signature(self):
         params = inspect.signature(n.send_success_notification).parameters
-        for removed in ("listening_flow_minutes", "most_played_artist", "longest_streak_tracks", "longest_streak_minutes"):
+        for removed in ("listening_flow_minutes", "longest_streak_tracks", "longest_streak_minutes"):
             assert removed not in params
+        assert "most_played_song" in params
+        assert "most_played_artist" in params
         assert "unique_album_count" in params
         assert "report_now" in params
 
@@ -50,7 +52,7 @@ class TestRemovedListeningFlowAndHighlights:
                 listening_flow_minutes={"Evening": 10},
             )
 
-    def test_payload_excludes_listening_flow_and_highlights(self, monkeypatch):
+    def test_payload_excludes_listening_flow_and_highlights_when_none(self, monkeypatch):
         monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
         captured = {}
 
@@ -91,6 +93,88 @@ class TestRemovedListeningFlowAndHighlights:
         assert "Listening" in content
         assert "7th Aug '26" in content
         assert "GitHub Actions sync" in content
+
+
+class TestMostPlayedSection:
+    def _monkeypatch_webhook(self, monkeypatch):
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
+
+    def test_most_played_song_only(self, monkeypatch):
+        self._monkeypatch_webhook(monkeypatch)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, **kwargs):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr(n.requests, "post", fake_post)
+
+        n.send_success_notification(
+            history_count=3, today_count=3, existing_count=0,
+            to_scrobble_count=3, scrobbled_count=3, failed_count=0,
+            most_played_song="Song A — Artist 1",
+        )
+
+        content = captured["json"]["content"]
+        assert "## Most Played" in content
+        assert "- Track • Song A — Artist 1" in content
+        assert "- Artist •" not in content
+
+    def test_most_played_artist_only(self, monkeypatch):
+        self._monkeypatch_webhook(monkeypatch)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, **kwargs):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr(n.requests, "post", fake_post)
+
+        n.send_success_notification(
+            history_count=3, today_count=3, existing_count=0,
+            to_scrobble_count=3, scrobbled_count=3, failed_count=0,
+            most_played_artist="Artist 1",
+        )
+
+        content = captured["json"]["content"]
+        assert "## Most Played" in content
+        assert "- Artist • Artist 1" in content
+        assert "- Track •" not in content
+
+    def test_both_most_played_song_and_artist(self, monkeypatch):
+        self._monkeypatch_webhook(monkeypatch)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, **kwargs):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr(n.requests, "post", fake_post)
+
+        n.send_success_notification(
+            history_count=3, today_count=3, existing_count=0,
+            to_scrobble_count=3, scrobbled_count=3, failed_count=0,
+            most_played_song="Song A — Artist 1",
+            most_played_artist="Artist 1",
+        )
+
+        content = captured["json"]["content"]
+        assert "## Most Played" in content
+        assert "- Track • Song A — Artist 1" in content
+        assert "- Artist • Artist 1" in content
+
 
 
 class TestSendSuccessNotification:

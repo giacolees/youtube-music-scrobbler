@@ -60,6 +60,8 @@ def send_success_notification(
     love_failed_songs: list = None,
     unique_artist_count: int = 0,
     unique_album_count: int = 0,
+    most_played_song: Optional[str] = None,
+    most_played_artist: Optional[str] = None,
     report_now: Optional[datetime] = None
 ):
     """
@@ -82,6 +84,8 @@ def send_success_notification(
         love_failed_songs: List of songs that failed to be loved (optional)
         unique_artist_count: Unique artists from today's songs
         unique_album_count: Unique albums from today's songs
+        most_played_song: Most frequently played song today if played > 1 time
+        most_played_artist: Most frequently played artist today if played > 1 time
         report_now: timezone-aware datetime to use for report date
     """
     webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
@@ -115,6 +119,12 @@ def send_success_notification(
     else:
         liked_today_lines.append("- None")
 
+    most_played_lines = []
+    if most_played_song:
+        most_played_lines.append(f"- Track • {most_played_song}")
+    if most_played_artist:
+        most_played_lines.append(f"- Artist • {most_played_artist}")
+
     body_lines = [
         f"# Scrobble Report — {title_date}",
         "```txt",
@@ -126,11 +136,16 @@ def send_success_notification(
         "## Liked Today",
         *liked_today_lines,
     ]
+    if most_played_lines:
+        body_lines.append("## Most Played")
+        body_lines.extend(most_played_lines)
+
     if love_failed_count > 0 and love_failed_songs:
         body_lines.append("## Love Failures")
         body_lines.extend([f"- {song}" for song in love_failed_songs[:10]])
         if len(love_failed_songs) > 10:
             body_lines.append(f"- +{len(love_failed_songs) - 10} more")
+
 
     body_lines.append("")
     body_lines.append(f"> {footer_text}")
