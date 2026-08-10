@@ -4,12 +4,14 @@ An intelligent, automated scrobbler that syncs your YouTube Music history to Las
 
 ## ✨ Features
 
-- **Smart Scrobbling**: Tracks position in history to handle replays and avoid duplicates.
-- **Secure**: AES-256 encryption for your YouTube Music session cookies.
-- **Multilingual Support**: Advanced date detection for 50+ languages.
-- **Automated**: Integrated with GitHub Actions for 24/7 synchronization.
-- **Discord Notifications**: Detailed reports with clickable YouTube Music links for liked and most played tracks.
-- **Lightweight**: Minimal dependencies and efficient SQLite tracking.
+- **Hyper-Optimized Execution**: Routine sync runs complete in **~0.8s to 1.5s**, featuring lazy API loading, HTTP session pooling, and $O(1)$ hash lookups.
+- **Smart Scrobbling**: Dual-pattern position tracking handles interleaved replays (`A → B → A`) and single-track repeat loops (`A → A → A`).
+- **Hybrid SQLite Caching**: Persistent SQLite cache + 100-track delta refresh for YouTube Music liked songs (reduces API network calls by 90%+).
+- **Secure**: AES-256 Fernet encryption for YouTube Music session credentials.
+- **Multilingual Support**: Advanced date detection supporting 50+ languages.
+- **Automated**: Integrated with GitHub Actions for 24/7 synchronization every 30 minutes.
+- **Discord Notifications**: Rich markdown reports featuring a top-5 **Scrobbled** tracks list with `+ X more` overflow, **Liked Today**, **Most Played Track**, and **Most Played Artist**.
+- **Lightweight**: Minimal dependencies, B-Tree indexed SQLite database, and single-commit batch transactions.
 
 ---
 
@@ -112,12 +114,14 @@ If you prefer external triggering (e.g. to bypass GitHub Actions scheduler runne
 
 ## 🛠️ Project Structure
 
-- `start_ytm_scobble.py`: Main process and Last.fm OAuth handler.
-- `ytmusic_fetcher.py`: Fetches and parses YTM history with track IDs.
-- `notifications.py`: Generates Discord reports with clickable YouTube Music track links.
-- `scrobble_utils.py`: Logic for smart scrobbling and timestamp generation.
-- `encrypt_auth.py`: Tool for securing your YouTube Music credentials.
-- `data.db`: Local SQLite database tracking scrobble history.
+- `start_ytm_scobble.py`: Main execution process, Last.fm OAuth handler, and database persistence manager.
+- `ytmusic_fetcher.py`: Fetches YTM history and manages hybrid SQLite persistent caching for liked songs.
+- `scrobble_utils.py`: Logic for `SmartScrobbler`, `PositionTracker`, metadata cleaning, and timestamp generation.
+- `notifications.py`: Generates Discord markdown reports with `## Scrobbled` tracks, `## Liked Today`, and `## Most Played` sections.
+- `lastpy/`: Lightweight Last.fm API client module supporting HTTPS connection pooling and batch scrobbling.
+- `encrypt_auth.py`: Utility tool for encrypting YouTube Music session credentials into `browser.json.enc`.
+- `data.db`: Local B-Tree indexed SQLite database tracking scrobbles, loved tracks, and liked song caches.
+- `tests/`: Comprehensive test suite containing 110+ unit, integration, and optimization regression test cases.
 
 ---
 

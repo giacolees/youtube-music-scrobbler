@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Notification utility module for sending Discord notifications
-about scrobbling results.
+Notification utility module for formatting and sending Discord notifications
+about scrobbling results, featuring a top-5 Scrobbled list with +X overflow,
+Liked Today tracks, Most Played Track, and Most Played Artist cards.
 """
 import os
 import requests
@@ -165,7 +166,13 @@ def send_success_notification(
     ]
 
     has_liked = bool(loved_songs)
-    has_most_played = bool(most_played_song or most_played_artist)
+
+    if scrobbled_songs:
+        body_lines.append("## Scrobbled")
+        max_items = 5
+        body_lines.extend([f"- {song}" for song in scrobbled_songs[:max_items]])
+        if len(scrobbled_songs) > max_items:
+            body_lines.append(f"- +{len(scrobbled_songs) - max_items} more")
 
     if has_liked:
         body_lines.append("## Liked Today")
@@ -191,9 +198,6 @@ def send_success_notification(
             body_lines.append(f"- Songs Played Today • {total_songs}")
         else:
             body_lines.append(f"- Artist • {most_played_artist}")
-
-    if not has_liked and not has_most_played:
-        body_lines.append("🎧 *Cruising through fresh tunes — no repeats or liked tracks yet today!*")
 
     if love_failed_count > 0 and love_failed_songs:
         body_lines.append("## Love Failures")

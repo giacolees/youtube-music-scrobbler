@@ -1,3 +1,14 @@
+"""
+Main execution daemon and orchestrator for YouTube Music Last.fm Scrobbler.
+
+Handles:
+- Last.fm OAuth authentication and session key resolution.
+- YouTube Music history fetching and timezone-aware filtering.
+- Dual-pattern position tracking & replay detection.
+- B-Tree indexed SQLite database storage with single-commit batch transactions.
+- Lazy-loaded hybrid persistent caching for liked songs.
+- Discord notification dispatch with Scrobbled, Liked, and Most Played summaries.
+"""
 import os
 import argparse
 import http.server
@@ -241,6 +252,23 @@ class ImprovedProcess:
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS liked_songs_cache (
+                id INTEGER PRIMARY KEY,
+                track_name TEXT,
+                artist_name TEXT,
+                normalized_title TEXT,
+                normalized_artist TEXT,
+                fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(normalized_title, normalized_artist)
+            )
+        ''')
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_scrobbles_composite ON scrobbles (track_name, artist_name, album_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_scrobbles_play_count ON scrobbles (play_count)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_loved_tracks_composite ON loved_tracks (track_name, artist_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_liked_songs_cache_norm ON liked_songs_cache (normalized_title, normalized_artist)')
+
         self.conn.commit()
         cursor.close()
 
@@ -293,7 +321,6 @@ class ImprovedProcess:
         logger.info("Fetching YouTube Music history...")
         try:
             history = get_ytmusic_history()
-            liked_song_keys = get_ytmusic_liked_song_keys()
         except FileNotFoundError as e:
             logger.error(f"{e}")
             logger.error("Please ensure 'browser.json' or 'browser.json.enc' with YTMUSIC_AUTH_KEY is provided.")
@@ -321,16 +348,17 @@ class ImprovedProcess:
         is_first_time = len(database_songs) == 0
         
         if database_songs:
-            songs_to_delete = [db_song for db_song in database_songs if not any(
-                (today_song['title'] == db_song['title'] and
-                 today_song['artist'] == db_song['artist'] and
-                 today_song['album'] == db_song['album'])
-                for today_song in today_songs
-            )]
+            today_keys = {(t['title'], t['artist'], t['album']) for t in today_songs}
+            songs_to_delete = [
+                db_song for db_song in database_songs
+                if (db_song['title'], db_song['artist'], db_song['album']) not in today_keys
+            ]
 
             if songs_to_delete:
-                for song in songs_to_delete:
-                    cursor.execute('DELETE FROM scrobbles WHERE track_name = ? AND artist_name = ? AND album_name = ?', (song['title'], song['artist'], song['album']))
+                cursor.executemany(
+                    'DELETE FROM scrobbles WHERE track_name = ? AND artist_name = ? AND album_name = ?',
+                    [(song['title'], song['artist'], song['album']) for song in songs_to_delete]
+                )
                 self.conn.commit()
 
         songs_to_process = self.position_tracker.detect_songs_to_scrobble(
@@ -352,6 +380,17 @@ class ImprovedProcess:
         loved_songs = []
         love_failed_songs = []
 
+        liked_song_keys = None
+
+        scrobbles_map = {
+            (r[0], r[1], r[2]): (r[3], r[4], r[5])
+            for r in cursor.execute('SELECT track_name, artist_name, album_name, id, max_array_position, play_count FROM scrobbles').fetchall()
+        }
+        loved_tracks_set = {
+            (r[0], r[1])
+            for r in cursor.execute('SELECT track_name, artist_name FROM loved_tracks').fetchall()
+        }
+
         for item in songs_to_process:
             song = item['song']
             position = item['position']
@@ -369,31 +408,35 @@ class ImprovedProcess:
                         scrobble_position += 1
                         scrobbled_songs.append(f"{song['title']} — {song['artist']}")
 
-                        song_key = normalize_song_key(song.get('title'), song.get('artist'))
-                        already_loved = cursor.execute(
-                            'SELECT 1 FROM loved_tracks WHERE track_name = ? AND artist_name = ?',
-                            (song['title'], song['artist'])
-                        ).fetchone()
-                        if song_key in liked_song_keys and not already_loved:
-                            love_status = self.scrobbler.love_song(song, self.session)
-                            if love_status == "loved":
-                                loved_count += 1
-                                loved_songs.append(format_song_with_link(song['title'], song.get('artist'), song.get('videoId')))
-                                if not self.dry_run:
+                        already_loved = (song['title'], song['artist']) in loved_tracks_set
+                        if not already_loved:
+                            if liked_song_keys is None:
+                                try:
+                                    liked_song_keys = get_ytmusic_liked_song_keys(db_conn=self.conn)
+                                except TypeError:
+                                    liked_song_keys = get_ytmusic_liked_song_keys()
+                            song_key = normalize_song_key(song.get('title'), song.get('artist'))
+                            if song_key in liked_song_keys:
+                                love_status = self.scrobbler.love_song(song, self.session)
+                                if love_status == "loved":
+                                    loved_count += 1
+                                    loved_songs.append(format_song_with_link(song['title'], song.get('artist'), song.get('videoId')))
+                                    loved_tracks_set.add((song['title'], song['artist']))
                                     cursor.execute(
                                         'INSERT OR IGNORE INTO loved_tracks (track_name, artist_name) VALUES (?, ?)',
                                         (song['title'], song['artist'])
                                     )
-                            elif love_status == "failed":
-                                love_failed_count += 1
-                                love_failed_songs.append(f"{song['title']} — {song['artist']}")
+                                elif love_status == "failed":
+                                    love_failed_count += 1
+                                    love_failed_songs.append(f"{song['title']} — {song['artist']}")
                     else:
                         failed_songs.append(f"{song['title']} by {song['artist']}")
                 
                 reason = item.get('reason')
                 should_scrobble = item.get('should_scrobble', False)
 
-                existing_song = cursor.execute('SELECT id, max_array_position, play_count FROM scrobbles WHERE track_name = ? AND artist_name = ? AND album_name = ?', (song['title'], song['artist'], song['album'])).fetchone()
+                song_key = (song['title'], song['artist'], song['album'])
+                existing_song = scrobbles_map.get(song_key)
                 
                 if existing_song:
                     song_id, current_max, current_play_count = existing_song
@@ -401,11 +444,12 @@ class ImprovedProcess:
                     is_replay = (reason in ('reproduction', 'loop_reproduction')) or (should_scrobble and reason != 'first_time_no_scrobble' and position < (current_max or position))
                     new_play_count = (current_play_count or 1) + (1 if is_replay else 0)
                     cursor.execute('UPDATE scrobbles SET array_position = ?, max_array_position = ?, play_count = ?, scrobbled_at = CURRENT_TIMESTAMP WHERE id = ?', (position, new_max, new_play_count, song_id))
+                    scrobbles_map[song_key] = (song_id, new_max, new_play_count)
                 else:
                     initial_play_count = 1
                     cursor.execute('INSERT INTO scrobbles (track_name, artist_name, album_name, array_position, max_array_position, is_first_time_scrobble, play_count) VALUES (?, ?, ?, ?, ?, ?, ?)', (song['title'], song['artist'], song['album'], position, position, is_first_time, initial_play_count))
-                
-                self.conn.commit()
+                    song_id = cursor.lastrowid
+                    scrobbles_map[song_key] = (song_id, position, initial_play_count)
                 
             except Exception as error:
                 failure_type = self.scrobbler.categorize_error(error)
@@ -414,6 +458,8 @@ class ImprovedProcess:
                     logger.critical("Last.fm authentication error detected. Stopping execution.")
                     break
                 failed_songs.append(f"{song['title']} by {song['artist']}")
+
+        self.conn.commit()
 
         report_now = get_scrobble_now()
         most_played_song = compute_most_played_song(today_songs, cursor=cursor)

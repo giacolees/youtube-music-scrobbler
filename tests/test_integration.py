@@ -105,7 +105,7 @@ def test_most_played_passed_to_notification_when_repeated(tmp_path, monkeypatch,
 
 
 
-def test_loved_flow_records_loved_track(tmp_path, monkeypatch, fake_scrobbler):
+def test_loved_flow_records_loved_track(tmp_path, monkeypatch, fake_scrobbler, capture_notification):
     monkeypatch.chdir(tmp_path)
     history = make_history(3)
     monkeypatch.setattr(s, "get_ytmusic_history", lambda: history)

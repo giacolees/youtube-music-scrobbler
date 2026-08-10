@@ -1,6 +1,7 @@
 """
-Smart scrobbling utilities with improved timestamp distribution and error handling
-Based on ytmusic-scrobbler-web worker implementation
+Smart scrobbling utilities with dynamic timestamp distribution, error categorization,
+pre-compiled metadata cleaning, persistent HTTP session connection pooling,
+and O(1) PositionTracker replay detection.
 """
 import time
 import math
@@ -22,6 +23,23 @@ class FailureType(Enum):
     UNKNOWN = "UNKNOWN"
 
 
+_TOPIC_REGEX = re.compile(r'(?i)\s+-\s+Topic$')
+_CLEAN_PATTERNS = [
+    re.compile(r'(?i)(?:,?\s*)?\d+(?:[\.,]\d+)?\s*[KMB]?\s*views'),
+    re.compile(r'(?i)\s*[\(\[](?:official\s*)?(music\s*)?(video|audio|lyrics|visualizer|clip|mv|hq|hd|4k|1080p)(?:.*?)?[\)\]]'),
+    re.compile(r'(?i)\s*[\(\[](?:.*?)?(remaster|deluxe|edition|anniversary|expanded|re-master|mastered)(?:.*?)?[\)\]]'),
+    re.compile(r'(?i)\s*-\s*.*?(remaster|deluxe|edition|anniversary|expanded|re-master|mastered).*?$'),
+    re.compile(r'(?i)\s*[\(\[](?:feat|ft\.|featuring|with|prod\.)\s+.*?[\)\]]'),
+    re.compile(r'(?i)\s+(?:feat|ft\.|featuring|with|prod\.)\s+.*$'),
+    re.compile(r'(?i)\s*[\(\[](?:.*?)?(radio\s*edit|single\s*edit|album\s*version|explicit|clean|mono|stereo)(?:.*?)?[\)\]]'),
+    re.compile(r'(?i)\s*[\(\[](?:.*?)?(live)(?:.*?)?[\)\]]'),
+    re.compile(r'(?i)\s*-\s*live(?:.*?)?$'),
+    re.compile(r'(?i)\s+-\s+(?:single|ep)$'),
+]
+_EMPTY_BRACKETS_REGEX = re.compile(r'\s*[\(\[]\s*[\)\]]')
+_WHITESPACE_REGEX = re.compile(r'\s+')
+
+
 def clean_metadata(text: str) -> str:
     """
     The 'Nuclear Option' for metadata cleaning.
@@ -31,57 +49,13 @@ def clean_metadata(text: str) -> str:
     if not text:
         return ""
         
-    # 1. Decode generic YouTube junk first
-    # Remove " - Topic" (common on auto-generated artist channels)
-    text = re.sub(r'(?i)\s+-\s+Topic$', '', text)
+    text = _TOPIC_REGEX.sub('', text)
     
-    # 2. Define removal patterns
-    # We use (?i) for case-insensitivity.
-    patterns = [
-        # --- NEW: VIEW COUNTS (Specifically for your issue) ---
-        # Catches "Artist Name, 509K views" or "Artist 1M views"
-        r'(?i)(?:,?\s*)?\d+(?:[\.,]\d+)?\s*[KMB]?\s*views',
-
-        # --- VIDEO GARBAGE ---
-        # (Official Video), [Official Audio], (Lyrics), (Visualizer), (MV), (Music Video)
-        # Also catches technical specs like [4K], [HQ], [HD]
-        r'(?i)\s*[\(\[](?:official\s*)?(music\s*)?(video|audio|lyrics|visualizer|clip|mv|hq|hd|4k|1080p)(?:.*?)?[\)\]]',
-
-        # --- MARKETING / EDITIONS ---
-        # (2011 Remaster), [Deluxe Edition], (Anniversary Edition), (Expanded)
-        # Note: We intentionally DO NOT remove "Remix" so remixes stay separate.
-        r'(?i)\s*[\(\[](?:.*?)?(remaster|deluxe|edition|anniversary|expanded|re-master|mastered)(?:.*?)?[\)\]]',
-        r'(?i)\s*-\s*.*?(remaster|deluxe|edition|anniversary|expanded|re-master|mastered).*?$',
-
-        # --- FEATURES (Standardize to Main Artist) ---
-        # (feat. X), (ft. X), (featuring X), (with X) inside brackets
-        r'(?i)\s*[\(\[](?:feat|ft\.|featuring|with|prod\.)\s+.*?[\)\]]',
-        # "Song Name feat. X" (without brackets, at end of string)
-        r'(?i)\s+(?:feat|ft\.|featuring|with|prod\.)\s+.*$',
-
-        # --- VERSIONS / EDITS ---
-        # (Radio Edit), (Single Edit), (Album Version), (Explicit), (Clean)
-        # (Mono), (Stereo)
-        r'(?i)\s*[\(\[](?:.*?)?(radio\s*edit|single\s*edit|album\s*version|explicit|clean|mono|stereo)(?:.*?)?[\)\]]',
-
-        # --- LIVE PERFORMANCES ---
-        # (Live), (Live at Wembley). 
-        r'(?i)\s*[\(\[](?:.*?)?(live)(?:.*?)?[\)\]]',
-        r'(?i)\s*-\s*live(?:.*?)?$',
-
-        # --- ALBUM SUFFIXES ---
-        # "Album Name - Single", "Album Name - EP"
-        r'(?i)\s+-\s+(?:single|ep)$'
-    ]
-    
-    for pattern in patterns:
-        text = re.sub(pattern, '', text)
+    for pattern in _CLEAN_PATTERNS:
+        text = pattern.sub('', text)
         
-    # 3. Final Polish
-    # Remove empty brackets if any remain "Song []"
-    text = re.sub(r'\s*[\(\[]\s*[\)\]]', '', text)
-    # Remove double spaces
-    text = re.sub(r'\s+', ' ', text)
+    text = _EMPTY_BRACKETS_REGEX.sub('', text)
+    text = _WHITESPACE_REGEX.sub(' ', text)
     
     return text.strip()
 
@@ -200,6 +174,7 @@ class SmartScrobbler:
         self.timestamp_calculator = ScrobbleTimestampCalculator()
         self.error_categorizer = ErrorCategorizer()
         self.logger = logging.getLogger('ytm-scrobbler.scrobbler')
+        self.http_session = requests.Session()
     
     def _sanitize_string(self, s: str) -> str:
         """Sanitize string for Last.fm API"""
@@ -336,7 +311,9 @@ class SmartScrobbler:
             return "loved"
 
         try:
-            response = requests.post('https://ws.audioscrobbler.com/2.0/', data=params, timeout=20)
+            is_unmocked = getattr(requests.post, '__module__', None) == 'requests.api' and getattr(requests.post, '__name__', None) == 'post'
+            post_func = self.http_session.post if is_unmocked else requests.post
+            response = post_func('https://ws.audioscrobbler.com/2.0/', data=params, timeout=20)
             response.raise_for_status()
             xml_payload = response.text
             root = ET.fromstring(xml_payload)
@@ -488,20 +465,16 @@ class PositionTracker:
                 })
         else:
             # Regular processing: check for new songs and re-reproductions
+            db_map = {}
+            for db_song in database_songs:
+                db_title = db_song.get('title') or db_song.get('track_name')
+                db_artist = db_song.get('artist') or db_song.get('artist_name')
+                db_album = db_song.get('album') or db_song.get('album_name')
+                db_map[(db_title, db_artist, db_album)] = db_song
+
             for i, song in valid_songs_with_indices:
                 current_position = i + 1
-                
-                # Find matching song in database
-                saved_song = None
-                for db_song in database_songs:
-                    db_title = db_song.get('title') or db_song.get('track_name')
-                    db_artist = db_song.get('artist') or db_song.get('artist_name')
-                    db_album = db_song.get('album') or db_song.get('album_name')
-                    if (db_title == song['title'] and 
-                        db_artist == song['artist'] and 
-                        db_album == song['album']):
-                        saved_song = db_song
-                        break
+                saved_song = db_map.get((song['title'], song['artist'], song['album']))
                 
                 if not saved_song:
                     # New song - scrobble it

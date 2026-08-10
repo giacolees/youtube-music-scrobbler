@@ -104,7 +104,8 @@ class TestRemovedListeningFlowAndHighlights:
         content = captured["json"]["content"]
         for forbidden in ("Listening Flow", "Highlights", "Longest Streak", "Most Played Track", "Most Played Artist", "## Liked Today"):
             assert forbidden not in content
-        assert "🎧 *Cruising through fresh tunes — no repeats or liked tracks yet today!*" in content
+        assert "## Scrobbled" in content
+        assert "- A Song — An Artist" in content
         assert "Scrobbled    3 tracks" in content
         assert "Listening" in content
         assert "7th Aug '26" in content
@@ -242,6 +243,32 @@ class TestSendSuccessNotification:
         content = captured["json"]["content"]
         assert "- Song A — Artist A" in content
         assert "- Song B — Artist B" in content
+
+    def test_payload_includes_scrobbled_songs_limit_and_overflow(self, monkeypatch):
+        self._monkeypatch_webhook(monkeypatch)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        def fake_post(url, json=None, **kwargs):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr(n.requests, "post", fake_post)
+        scrobbled_list = [f"Song {i} — Artist {i}" for i in range(1, 8)]
+        n.send_success_notification(
+            history_count=10, today_count=7, existing_count=0,
+            to_scrobble_count=7, scrobbled_count=7, failed_count=0,
+            scrobbled_songs=scrobbled_list,
+        )
+        content = captured["json"]["content"]
+        assert "## Scrobbled" in content
+        assert "- Song 1 — Artist 1" in content
+        assert "- Song 5 — Artist 5" in content
+        assert "- Song 6 — Artist 6" not in content
+        assert "- +2 more" in content
 
     def test_payload_includes_love_failures(self, monkeypatch):
         self._monkeypatch_webhook(monkeypatch)
