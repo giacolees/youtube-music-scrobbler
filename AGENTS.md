@@ -8,14 +8,14 @@ YouTube Music Scrobbler is a Python application that fetches your YouTube Music 
 
 ## Environment Setup
 
-The project uses a Python environment (managed via `venv` or `conda`):
+The project uses [uv](https://docs.astral.sh/uv/) for environment and dependency management:
 
 ```bash
-# Setup with pip
-python -m venv .venv
-source .venv/bin/activate  # Or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+uv sync          # Creates .venv and installs pinned deps from uv.lock
+uv run <cmd>     # Runs commands inside the project environment
 ```
+
+Dependencies live in `pyproject.toml` (`[project] dependencies` + the `dev` group for pytest) and are locked in `uv.lock` — there is no `requirements.txt`. Run tests with `uv run pytest`.
 
 ## Authentication & Configuration
 
@@ -88,6 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_liked_songs_cache_norm ON liked_songs_cache (norm
 ## Scrobbling Logic
 
 The application uses a dual-pattern "Position Tracking" system:
+
 - **Interleaved Replays (`A → B → A`)**: Detects when a song's array position moves up (`current_position < saved_position`), scrobbling each interleaved replay to Last.fm.
 - **Continuous Loops (`A → A → A`)**: Detects single-track loops at Position 1 by comparing `playedAt` timestamp freshness against SQLite `scrobbled_at` records (scrobbling if playback is > 120s old).
 - **Persistent Play Counts**: Tracks `play_count` in `data.db` to calculate cumulative daily scrobbles and render dedicated **Most Played Track** and **Most Played Artist** notification sections.
@@ -103,5 +104,5 @@ The workflow in `.github/workflows/sync.yml` automates the scrobbling every 30 m
 - Always verify `data.db` schema if making changes to tracking or caching logic.
 - Use `get_cached_fetcher()` when interacting with YouTube Music API to prevent redundant Fernet auth decryption.
 - Preserve single-commit transaction batching when modifying SQLite processing loops.
-- Run `pytest` to verify changes (`110+ passed` test suite).
+- Run `uv run pytest` to verify changes (`110+ passed` test suite).
 - Refer to `GITHUB_ACTIONS_GUIDE.md` for CI/CD related changes.

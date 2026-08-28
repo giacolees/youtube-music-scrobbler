@@ -2,7 +2,8 @@ name: YouTube Music Scrobble Sync
 
 on:
   schedule:
-    - cron: '17,47 * * * *' # Every 30 minutes at odd minute offsets (:17 and :47)
+    # Every 30 minutes at odd minute offsets (:17 and :47)
+    - cron: "17,47 * * * *"
   push:
     branches: [master] # Trigger on push to master branch
   workflow_dispatch: # Allows manual triggering from GitHub UI
@@ -10,33 +11,30 @@ on:
 jobs:
   scrobble:
     runs-on: ubuntu-latest
-    environment: production # Binds to the 'production' environment for secrets and protection rules
+    # Binds to the 'production' environment for secrets and protection rules
+    environment: production
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
-
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: uv sync --frozen
 
       - name: Cache scrobble database
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: data.db
-          key: ${{ runner.os }}-scrobble-db-${{ github.run_id }}-${{ github.run_attempt }}
+          key: >-
+            ${{ runner.os }}-scrobble-db-${{ github.run_id }}-
+            ${{ github.run_attempt }}
           restore-keys: |
             ${{ runner.os }}-scrobble-db-${{ github.run_id }}-
             ${{ runner.os }}-scrobble-db-
@@ -48,7 +46,7 @@ jobs:
           LASTFM_SESSION: ${{ secrets.LASTFM_SESSION }}
           YTMUSIC_AUTH_KEY: ${{ secrets.YTMUSIC_AUTH_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python start_ytm_scobble.py
+        run: uv run python start_ytm_scobble.py
 
   notify_failure:
     needs: scrobble
@@ -59,9 +57,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
       - name: Send Discord failure notification
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          pip install requests
-          python .github/scripts/send_failure_notification.py
+          uv sync --frozen
+          uv run python .github/scripts/send_failure_notification.py

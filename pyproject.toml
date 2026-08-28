@@ -1,0 +1,22 @@
+[project]
+name = "youtube-music-scrobbler"
+version = "0.1.0"
+description = "Fetch your YouTube Music listening history and scrobble it to Last.fm with smart duplicate detection."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "certifi==2026.1.4",
+  "charset-normalizer==3.4.4",
+  "cryptography==44.0.0",
+  "idna==3.11",
+  "python-dotenv==1.0.1",
+  "requests==2.32.5",
+  "urllib3==2.6.3",
+  "ytmusicapi==1.11.4",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
