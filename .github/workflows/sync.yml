@@ -46,6 +46,7 @@ jobs:
           LASTFM_SESSION: ${{ secrets.LASTFM_SESSION }}
           YTMUSIC_AUTH_KEY: ${{ secrets.YTMUSIC_AUTH_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SCROBBLE_TIMEZONE: Europe/Rome
         run: uv run python start_ytm_scobble.py
 
   notify_failure:
