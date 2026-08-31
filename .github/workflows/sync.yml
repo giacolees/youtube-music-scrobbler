@@ -2,9 +2,9 @@ name: YouTube Music Scrobble Sync
 
 on:
   schedule:
-    # Every 30 min at odd offsets (:17 and :47). To re-register a
-    # stuck schedule, push a trivial change to this file.
-    - cron: "17,47 * * * *"
+    # Every 30 min at odd offsets (:18 and :48). Changing the cron
+    # expression re-registers a previously stalled schedule.
+    - cron: "18,48 * * * *"
   push:
     branches: [master] # Trigger on push to master branch
   workflow_dispatch: # Allows manual triggering from GitHub UI
