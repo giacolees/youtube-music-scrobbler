@@ -2,8 +2,8 @@ name: YouTube Music Scrobble Sync
 
 on:
   schedule:
-    # Run every 30 min at off-peak minute offsets.
-    - cron: "18,48 * * * *"
+    # Temporarily verify the scheduled trigger, then restore the normal cadence.
+    - cron: "35 * * * *"
   push:
     branches: [master] # Trigger on push to master branch
   workflow_dispatch: # Allows manual triggering from GitHub UI
